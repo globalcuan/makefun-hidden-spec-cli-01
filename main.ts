@@ -35,8 +35,8 @@ function patchLines(text: string): string[] {
   if (text.endsWith('\n')) lines.pop();
   const clean=lines.map((l) => (l.endsWith('\r') ? l.slice(0, -1) : l));
   let a=0,b=clean.length-1;while(a<=b&&blank(clean[a]!))a++;while(b>=a&&blank(clean[b]!))b--;
-  if(clean[a]?.startsWith('```'))clean.splice(a,1);
-  b=clean.length-1;while(b>=0&&blank(clean[b]!))b--;if(clean[b]?.trim()==='```')clean.splice(b,1);
+  if(clean[a]?.startsWith('```'))clean[a]='';
+  b=clean.length-1;while(b>=0&&blank(clean[b]!))b--;if(clean[b]?.trim()==='```')clean[b]='';
   return clean;
 }
 
@@ -109,8 +109,9 @@ function unifiedEdits(lines: string[], strict: boolean): Edit[] {
       if(s.old==='/dev/null')s.create=true;if(s.neu==='/dev/null')s.del=true;i+=2;continue;
     }
     if(l.startsWith('--- ') && s && !s.hunks.length && !(lines[i+1]??'').startsWith('+++ '))throw new Exit2(`error: parse ${i+2}`);
-    if(l.startsWith('@@')){ if(!/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(?:.*)$/.test(l))throw new Exit2(`error: parse ${i+1}`); if(!s)throw new Exit2(`error: parse ${i+1}`); const a=Number(/^@@ -(\d+)/.exec(l)![1]); const h:H={a,old:[],neu:[],noNl:false,ctx:[]};i++;
+    if(l.startsWith('@@')){ if(!/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@(?:.*)$/.test(l))throw new Exit2(`error: parse ${i+1}`); if(!s)throw new Exit2(`error: parse ${i+1}`); const a=Number(/^@@ -(\d+)/.exec(l)![1]); const counts=/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(l)!; const oldCount=counts[2]===undefined?1:Number(counts[2]), newCount=counts[4]===undefined?1:Number(counts[4]); const h:H={a,old:[],neu:[],noNl:false,ctx:[]};i++;
       while(i<lines.length && !(lines[i]!.startsWith('diff --git ') || (lines[i]!.startsWith('--- ')&&(lines[i+1]??'').startsWith('+++ ')))){
+        if(h.old.length>=oldCount&&h.neu.length>=newCount){if(lines[i]!.startsWith('\\')){h.noNl=true;i++;}break;}
         const x=lines[i]!; if(x.startsWith('\\')){h.noNl=true;i++;continue;} if(x===''||x[0]===' '){h.ctx.push([h.old.length,h.neu.length]);h.old.push(x===''?'':x.slice(1));h.neu.push(x===''?'':x.slice(1));}else if(x[0]==='-')h.old.push(x.slice(1));else if(x[0]==='+')h.neu.push(x.slice(1));else break;i++;
       } s.hunks.push(h);continue;
     }
@@ -285,12 +286,11 @@ function run(args: string[]): { code: number; out: string[] } {
     const now = tree.now.get(p)!;
     if (was === now) continue;
     rows.push(`${was === null ? 'A' : now === null ? 'D' : 'M'} ${p}`);
-    if (check) continue;
+  }
+  if (!check) for (const [p, now] of tree.now) {
+    if (now === tree.original(p)) continue;
     if (now === null) rmSync(p, { force: true });
-    else {
-      mkdirSync(dirname(p), { recursive: true });
-      writeFileSync(p, now);
-    }
+    else { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, now); }
   }
   return { code: 0, out: [...rows, `ok: ${rows.length} ${rows.length === 1 ? 'file' : 'files'}`] };
 }
